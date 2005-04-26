@@ -1,0 +1,15 @@
+#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
+name:         Apache2-AuthCookieDBI
+version:      2.03
+version_from: AuthCookieDBI.pm
+installdirs:  site
+requires:
+    Apache2::Const:                0
+    mod_perl2:                     1.999022
+    Digest::MD5:                   0
+    Date::Calc:                    0
+    Apache::DBI:                   0.91
+    Apache2::AuthCookie:           3.08
+
+distribution_type: module
+generated_by: ExtUtils::MakeMaker version 6.12
