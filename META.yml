@@ -1,15 +1,19 @@
-#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
-name:         Apache2-AuthCookieDBI
-version:      2.03
-version_from: AuthCookieDBI.pm
-installdirs:  site
-requires:
-    Apache2::Const:                0
-    mod_perl2:                     1.999022
-    Digest::MD5:                   0
-    Date::Calc:                    0
-    Apache::DBI:                   0.91
+--- #YAML:1.0
+name:                Apache2-AuthCookieDBI
+version:             2.04
+abstract:            ~
+license:             lgpl
+author:              
+    - Matisse Enzer <matisse@cpan.org>
+generated_by:        ExtUtils::MakeMaker version 6.42
+distribution_type:   module
+requires:     
     Apache2::AuthCookie:           3.08
-
-distribution_type: module
-generated_by: ExtUtils::MakeMaker version 6.12
+    Apache2::Const:                0
+    Apache::DBI:                   0.91
+    Date::Calc:                    0
+    Digest::MD5:                   0
+    mod_perl2:                     1.999022
+meta-spec:
+    url:     http://module-build.sourceforge.net/META-spec-v1.3.html
+    version: 1.3
