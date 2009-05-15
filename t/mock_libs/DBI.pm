@@ -1,8 +1,8 @@
-# $Header: /usr/local/CVS/Apache-AuthCookieDBI/t/mock_libs/DBI.pm,v 1.1 2007/02/04 19:45:10 matisse Exp $
-# $Revision: 1.1 $
+# $Header: /usr/local/CVS/Apache-AuthCookieDBI/t/mock_libs/DBI.pm,v 1.3 2009/04/26 17:33:26 matisse Exp $
+# $Revision: 1.3 $
 # $Author: matisse $
 # $Source: /usr/local/CVS/Apache-AuthCookieDBI/t/mock_libs/DBI.pm,v $
-# $Date: 2007/02/04 19:45:10 $
+# $Date: 2009/04/26 17:33:26 $
 ###############################################################################
 
 #  Mock class - for testing only
@@ -14,13 +14,19 @@ use warnings;
 #warn 'Loading mock library ' . __FILE__;
 my $MOCK_DBH_CLASS = 'DBI::Mock::dbh';
 
-my %ARGS = ();
+our $CONNECT_CACHED_FORCE_FAIL;
 
 sub connect_cached {
     my ( $class, @args ) = @_;
+
+    if ($CONNECT_CACHED_FORCE_FAIL) {
+        return;
+    }
+
     my $fake_dbh = {};
     bless $fake_dbh, $MOCK_DBH_CLASS;
-    $ARGS{$fake_dbh} = \@args;
+    $fake_dbh->{'connect_cached_args'} = \@args;
+
     return $fake_dbh;
 }
 
