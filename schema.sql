@@ -1,10 +1,11 @@
-# $Id: schema.sql,v 1.1.1.1 2003/10/10 20:13:33 jacob Exp $
+# $Id: schema.sql,v 1.3 2010/11/29 04:00:53 matisse Exp $
 #
 # Schema for creating the database tables for an authentication system.
 
 CREATE TABLE users (
 	user     CHAR(16) PRIMARY KEY,
-	password CHAR(24)
+	password CHAR(24),
+    active   BOOLEAN
 );
 
 CREATE TABLE groups (

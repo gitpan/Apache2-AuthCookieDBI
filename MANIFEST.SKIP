@@ -4,3 +4,9 @@ Makefile
 .project
 blib*
 CVS/*
+^MYMETA.yml$
+.*.tar.gz$
+_build
+Build
+Apache2-AuthCookieDBI-*
+MYMETA.yml

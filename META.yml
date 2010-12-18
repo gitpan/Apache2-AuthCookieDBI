@@ -1,25 +1,32 @@
---- #YAML:1.0
-name:               Apache2-AuthCookieDBI
-version:            2.05
-abstract:           ~
-author:
-    - Matisse Enzer <matisse@cpan.org>
-license:            lgpl
-distribution_type:  module
+---
+abstract: 'An AuthCookie module backed by a DBI database.'
+author: []
+build_requires:
+  Test::More: 0.4
 configure_requires:
-    ExtUtils::MakeMaker:  0
-requires:
-    Apache2::AuthCookie:  3.08
-    Apache2::Const:       0
-    Apache::DBI:          0.91
-    Date::Calc:           0
-    Digest::MD5:          0
-    mod_perl2:            1.999022
-no_index:
-    directory:
-        - t
-        - inc
-generated_by:       ExtUtils::MakeMaker version 6.48
+  Module::Build: 0.36
+generated_by: 'Module::Build version 0.3607'
+license: lgpl
 meta-spec:
-    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
-    version:  1.4
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: Apache2-AuthCookieDBI
+provides:
+  Apache2::AuthCookieDBI:
+    file: lib/Apache2/AuthCookieDBI.pm
+    version: 2.13
+requires:
+  Apache2::AuthCookie: 3.08
+  Apache2::Const: 0
+  Apache2::RequestRec: 0
+  Apache2::ServerUtil: 0
+  Carp: 0
+  Crypt::CBC: 2.13
+  DBI: 1.4
+  Date::Calc: 0
+  Digest::MD5: 0
+  FindBin: 0
+  mod_perl2: 1.999022
+resources:
+  license: http://opensource.org/licenses/lgpl-license.php
+version: 2.13
