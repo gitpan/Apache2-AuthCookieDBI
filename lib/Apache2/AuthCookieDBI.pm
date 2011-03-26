@@ -1,6 +1,6 @@
 #===============================================================================
 #
-# $Id: AuthCookieDBI.pm,v 1.55 2010/11/29 04:14:25 matisse Exp $
+# $Id: AuthCookieDBI.pm,v 1.60 2011/03/12 20:14:41 matisse Exp $
 #
 # Apache2::AuthCookieDBI
 #
@@ -33,14 +33,14 @@ package Apache2::AuthCookieDBI;
 use strict;
 use warnings;
 use 5.004;
-our $VERSION = 2.13;
+our $VERSION = 2.14;
 
 use Apache2::AuthCookie;
 use base qw( Apache2::AuthCookie );
 
 use Apache2::RequestRec;
 use DBI;
-use Apache2::Const -compile => qw( OK HTTP_FORBIDDEN );
+use Apache2::Const -compile => qw( OK HTTP_FORBIDDEN SERVER_ERROR );
 use Apache2::ServerUtil;
 use Carp qw();
 use Digest::MD5 qw( md5_hex );
@@ -81,7 +81,7 @@ Apache2::AuthCookieDBI - An AuthCookie module backed by a DBI database.
 
 =head1 VERSION
 
-    This is version 2.13
+    This is version 2.14
 
 =head1 COMPATIBILITY
 
@@ -362,10 +362,17 @@ root and include it.
 
 This is required and has no default value.
 (NOTE: In AuthCookieDBI versions 1.22 and earlier the secret key either could be
-or was required to be in a seperate file with the path configured with
-PerlSetVar WhateverDBI_SecretKeyFile, as of version 2.0 this is not possible, you
-must put the secret key in the Apache configuration directly, either in the main
-httpd.conf file or in an included file.  You might wish to make the file not
+set in the configuration file itself
+or it could be place in a seperate file with the path configured with
+C<PerlSetVar WhateverDBI_SecretKeyFile>.
+
+As of version 2.0 you must use  C<WhateverDBI_SecretKey> and not
+C<PerlSetVar WhateverDBI_SecretKeyFile>.
+
+If you want to put the secret key in a separate file then you can create a
+separate file that uses C<PerlSetVar WhateverDBI_SecretKey> and include that
+file in your main Apache configuration using Apaches' C<Include>
+directive. You might wish to make the file not
 world-readable. Also, make sure that the Perl environment variables are
 not publically available, for example via the /perl-status handler.)
 See also L</"COMPATIBILITY"> in this man page.
@@ -526,6 +533,8 @@ sub _percent_decode {
 
 sub _dbi_connect {
     my ( $class, $r ) = @_;
+    Carp::confess('Failed to pass Apache request object') if not $r;
+
     my %c = $class->_dbi_config_vars($r);
 
     # get the crypted password from the users database for this user.
@@ -582,13 +591,14 @@ SQL
 }
 
 sub _get_new_session {
+    my $class          = shift;
     my $r              = shift;
     my $user           = shift;
     my $auth_name      = shift;
     my $session_module = shift;
     my $extra_data     = shift;
 
-    my $dbh = _dbi_connect($r);
+    my $dbh = $class->_dbi_connect($r);
     my %session;
     tie %session, $session_module, undef,
         +{
@@ -596,8 +606,8 @@ sub _get_new_session {
         LockHandle => $dbh,
         };
 
-    $session{user}       = $user;
-    $session{extra_data} = $extra_data;
+    $session{'user'}       = $user;
+    $session{'extra_data'} = $extra_data;
     return \%session;
 }
 
@@ -683,9 +693,10 @@ sub authen_cred {
     # If we are using sessions, we create a new session for this login.
     my $session_id = EMPTY_STRING;
     if ( $c{'DBI_sessionmodule'} ne 'none' ) {
-        my $session
-            = _get_new_session( $r, $user, $auth_name, $c{'DBI_sessionmodule'},
-            \@extra_data );
+        my $session = $class->_get_new_session(
+            $r, $user, $auth_name, $c{'DBI_sessionmodule'},
+            \@extra_data
+        );
         $r->pnotes( $auth_name, $session );
         $session_id = $session->{_session_id};
     }
@@ -736,7 +747,7 @@ sub authen_ses_key {
     my $secret_key = $c{'DBI_SecretKey'};
     if ( !defined $secret_key ) {
         $r->log_error(
-            "Apache2::AuthCookieDBI: didn't have the secret key from for auth realm $auth_name",
+            "$class: didn't have the secret key from for auth realm $auth_name",
             $r->uri
         );
         return;
@@ -755,7 +766,7 @@ sub authen_ses_key {
     ($enc_user) = _defined_or_empty($enc_user);
     if ( $enc_user !~ PERCENT_ENCODED_STRING_REGEX ) {
         $r->log_error(
-            "Apache2::AuthCookieDBI: bad percent-encoded user '$enc_user' recovered from session ticket for auth_realm '$auth_name'",
+            "$class: bad percent-encoded user '$enc_user' recovered from session ticket for auth_realm '$auth_name'",
             $r->uri
         );
         return;
@@ -767,7 +778,7 @@ sub authen_ses_key {
     ($issue_time) = _defined_or_empty($issue_time);
     if ( $issue_time !~ DATE_TIME_STRING_REGEX ) {
         $r->log_error(
-            "Apache2::AuthCookieDBI: bad issue time '$issue_time' recovered from ticket for user $user for auth_realm $auth_name",
+            "$class: bad issue time '$issue_time' recovered from ticket for user $user for auth_realm $auth_name",
             $r->uri
         );
         return;
@@ -776,14 +787,14 @@ sub authen_ses_key {
     ($expire_time) = _defined_or_empty($expire_time);
     if ( $expire_time !~ DATE_TIME_STRING_REGEX ) {
         $r->log_error(
-            "Apache2::AuthCookieDBI: bad expire time $expire_time recovered from ticket for user $user for auth_realm $auth_name",
+            "$class: bad expire time $expire_time recovered from ticket for user $user for auth_realm $auth_name",
             $r->uri
         );
         return;
     }
     if ( $hashed_string !~ THIRTY_TWO_CHARACTER_HEX_STRING_REGEX ) {
         $r->log_error(
-            "Apache2::AuthCookieDBI: bad encrypted session_key $hashed_string recovered from ticket for user $user for auth_realm $auth_name",
+            "$class: bad encrypted session_key $hashed_string recovered from ticket for user $user for auth_realm $auth_name",
             $r->uri
         );
         return;
@@ -792,7 +803,7 @@ sub authen_ses_key {
     # If we're using a session module, check that their session exist.
     if ( $c{'DBI_sessionmodule'} ne 'none' ) {
         my %session;
-        my $dbh = _dbi_connect($r) || return;
+        my $dbh = $class->_dbi_connect($r) || return;
 
         my $tie_result = eval {
             tie %session, $c{'DBI_sessionmodule'}, $session_id,
@@ -803,7 +814,7 @@ sub authen_ses_key {
         };
         if ( ( !$tie_result ) || $EVAL_ERROR ) {
             $r->log_error(
-                "Apache2::AuthCookieDBI: failed to tie session hash using session id $session_id for user $user for auth_realm $auth_name, error was $@",
+                "$class: failed to tie session hash to '$c{'DBI_sessionmodule'}' using session id $session_id for user $user for auth_realm $auth_name, error was '$EVAL_ERROR'",
                 $r->uri
             );
             return;
@@ -829,7 +840,7 @@ sub authen_ses_key {
     # Compare it to the hash they gave us.
     if ( $new_hash ne $hashed_string ) {
         $r->log_error(
-            "Apache2::AuthCookieDBI: hash '$hashed_string' in cookie did not match calculated hash '$new_hash' of contents for user $user for auth realm $auth_name",
+            "$class: hash '$hashed_string' in cookie did not match calculated hash '$new_hash' of contents for user $user for auth realm $auth_name",
             $r->uri
         );
         return;
@@ -838,7 +849,7 @@ sub authen_ses_key {
     # Check that their session hasn't timed out.
     if ( _now_year_month_day_hour_minute_second gt $expire_time ) {
         $r->log_error(
-            "Apache:AuthCookieDBI: expire time $expire_time has passed for user $user for auth realm $auth_name",
+            "$class: expire time $expire_time has passed for user $user for auth realm $auth_name",
             $r->uri
         );
         return;
@@ -900,7 +911,7 @@ sub group {
     my $user = $r->user;
 
     # See if we have a row in the groups table for this user/group.
-    my $dbh = _dbi_connect($r) || return;
+    my $dbh = $class->_dbi_connect($r) || return Apache2::Const::SERVER_ERROR;
 
     # Now loop through all the groups to see if we're a member of any:
     my $sth = $dbh->prepare_cached( <<"EOS" );
@@ -944,7 +955,7 @@ sub user_is_active {
       WHERE $c{'DBI_UserField'} = ?
 SQL
 
-    my $sth  = $dbh->prepare_cached($sql_query);
+    my $sth = $dbh->prepare_cached($sql_query);
     $sth->execute($user);
     my ($user_active_setting) = $sth->fetchrow_array;
     $sth->finish();

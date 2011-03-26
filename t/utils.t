@@ -3,12 +3,14 @@ use warnings;
 use English qw(-no_match_vars);
 use FindBin qw($Bin);
 use lib "$Bin/mock_libs";
-use Apache2::RequestRec;          # from mocks
+use Apache2::RequestRec;    # from mocks
+use Apache2::Const -compile => qw( OK HTTP_FORBIDDEN );
 use Crypt::CBC;                   # from mocks
 use Digest::MD5 qw( md5_hex );    # from mocks
 use Data::Dumper;
+use Mock::Tieable;
 
-use Test::More tests => 43;
+use Test::More tests => 55;
 
 use constant CLASS_UNDER_TEST => 'Apache2::AuthCookieDBI';
 use constant EMPTY_STRING     => q{};
@@ -22,9 +24,11 @@ test_encrypt_session_key();
 test_dir_config_var();
 test_authen_ses_key();
 test_get_cipher_for_type();
+test_group();
 test__dbi_connect();
 test_get_crypted_password();
 test_user_is_active();
+test__get_new_session();
 
 exit;
 
@@ -70,7 +74,7 @@ sub test_authen_ses_key {
         $auth_name . 'DBI_groupuserfield'  => 'user',
         $auth_name . 'DBI_encryptiontype'  => 'none',
         $auth_name . 'DBI_sessionlifetime' => '00-24-00-00',
-        $auth_name . 'DBI_sessionmodule'   => 'none',
+        $auth_name . 'DBI_sessionmodule'   => 'Mock::Tieable',
     };
     my $r                  = set_up( $auth_name, $mock_config );
     my $expected_user      = 'expected_username';
@@ -109,6 +113,18 @@ sub test_authen_ses_key {
         = CLASS_UNDER_TEST->authen_ses_key( $r, $encrypted_session_key );
     is( $got_user, $expected_user, 'authen_ses_key() on plaintext key' )
         || diag join( "\n", @{ $r->log_error() } );
+
+    $mock_config->{ $auth_name . 'DBI_sessionmodule' } = 'Missing::Class';
+    $r = set_up( $auth_name, $mock_config );
+    $got_user = CLASS_UNDER_TEST->authen_ses_key( $r, $encrypted_session_key );
+    Test::More::ok( !$got_user,
+        'authen_ses_key() returns false on failure to tie session.' );
+    my $class = CLASS_UNDER_TEST;
+    Test::More::like(
+        $r->{'_error_messages'}->[0],
+        qr/${class}: failed to tie session hash/,
+        'authen_ses_key() logs failure to tie session hash.'
+    );
     return TRUE;
 }
 
@@ -307,6 +323,70 @@ sub test_get_crypted_password {
     return TRUE;
 }
 
+sub test_group {
+    my $auth_name = 'test_group';
+    my $r         = set_up($auth_name);
+    my $user      = 'test_user';
+    $r->{'user'} = $user;
+    my $mock_config = $r->{'mock_config'};
+    my @groups      = qw(group_one group_two);
+
+    my @database_queries;
+    my $got_result;
+    {
+        no warnings qw(once redefine);
+        local *DBI::Mock::sth::execute = sub {
+            my ( $sth, @args ) = @_;
+            push @database_queries, \@args;
+        };
+        $got_result = CLASS_UNDER_TEST->group( $r, "@groups" );
+    }
+    Test::More::is(
+        $got_result,
+        Apache2::Const::HTTP_FORBIDDEN,
+        'group() returns FORBIDDEN when user not in any group.'
+    );
+
+    for ( my $i = 0; $i < scalar @groups; $i++ ) {
+        my ( $got_group, $got_user ) = @{ $database_queries[$i] };
+        my $expected_group = $groups[$i];
+        Test::More::is( $got_group, $expected_group,
+            "group() checked DB for '$expected_group'" );
+        Test::More::is( $got_user, $user, "group() checked DB for '$user'" );
+    }
+    Test::More::like(
+        $r->{'_error_messages'}->[0],
+        qr/user $user was not a member of any of the required groups @groups/,
+        'group() logs expected message for user not in any group.'
+    );
+
+    # Test what happens when the user is in a group
+    my $group = 'some_group';
+    {
+        no warnings qw(once redefine);
+        local *DBI::Mock::sth::fetchrow_array = sub { return TRUE };
+        $got_result = CLASS_UNDER_TEST->group( $r, $group );
+    }
+    Test::More::is( $got_result, Apache2::Const::OK,
+        'group() returns OK if user is in a group.' );
+
+    Test::More::is_deeply(
+        $r->{'subprocess_env'},
+        { AUTH_COOKIE_DBI_GROUP => $group },
+        'group() sets AUTH_COOKIE_DBI_GROUP when OK'
+    );
+
+    # test failure to connect to database
+    {
+        no warnings qw(once redefine);
+        local *DBI::connect_cached = sub {return};
+        $got_result = CLASS_UNDER_TEST->group( $r, $group );
+    }
+    Test::More::is( $got_result, Apache2::Const::SERVER_ERROR,
+        'group() returns SERVER_ERROR on DB connect failure.' );
+    return TRUE;
+}
+
 sub test__dbi_connect {
     my $auth_name = 'testing__dbi_connect';
 
@@ -392,5 +472,23 @@ sub test_user_is_active {
     Test::More::ok( $active_user,
         'test_user_is_active() with active user using DBI_UserActiveField' );
 
+    return TRUE;
+}
+
+sub test__get_new_session {
+    my $auth_name      = 'test__get_new_session';
+    my $r              = set_up($auth_name);
+    my $user           = 'TestUser';
+    my $session_module = 'Mock::Tieable';
+    my $extra_data     = 'extra data';
+
+    my $got_session = CLASS_UNDER_TEST->_get_new_session( $r, $user, $auth_name,
+        $session_module, $extra_data );
+
+    Test::More::is_deeply(
+        $got_session,
+        { user => $user, extra_data => $extra_data },
+        q{_get_new_session() ties 'user' and 'extra_data' args.}
+    );
     return TRUE;
 }
