@@ -1,11 +1,12 @@
 ---
 abstract: 'An AuthCookie module backed by a DBI database.'
-author: []
+author:
+  - 'Matisse Enzer <matisse@cpan.org>'
 build_requires:
   Test::More: 0.4
 configure_requires:
   Module::Build: 0.36
-generated_by: 'Module::Build version 0.3607'
+generated_by: 'Module::Build version 0.3603'
 license: lgpl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
@@ -14,7 +15,8 @@ name: Apache2-AuthCookieDBI
 provides:
   Apache2::AuthCookieDBI:
     file: lib/Apache2/AuthCookieDBI.pm
-    version: 2.14
+    version: 2.15
+release_status: stable
 requires:
   Apache2::AuthCookie: 3.08
   Apache2::Const: 0
@@ -28,5 +30,13 @@ requires:
   FindBin: 0
   mod_perl2: 1.999022
 resources:
-  license: http://opensource.org/licenses/lgpl-license.php
-version: 2.14
+  bugtracker:
+    web: https://rt.cpan.org/Public/Dist/Display.html?Name=Apache2-AuthCookieDBI
+  homepage: http://search.cpan.org/dist/Apache2-AuthCookieDBI
+  license:
+    - http://opensource.org/licenses/lgpl-license.php
+  repository:
+    type: git
+    url: git://github.com/matisse/Apache-AuthCookieDBI.git
+    web: https://github.com/matisse/Apache-AuthCookieDBI
+version: 2.15

@@ -10,13 +10,14 @@ use Digest::MD5 qw( md5_hex );    # from mocks
 use Data::Dumper;
 use Mock::Tieable;
 
-use Test::More tests => 55;
+use Test::More tests => 59;
 
 use constant CLASS_UNDER_TEST => 'Apache2::AuthCookieDBI';
 use constant EMPTY_STRING     => q{};
 use constant TRUE             => 1;
 
 use_ok(CLASS_UNDER_TEST);
+test_authen_cred();
 test_check_password();
 test_defined_or_empty();
 test_decrypt_session_key();
@@ -55,6 +56,62 @@ sub _mock_config_for_auth_name {
         "${auth_name}DBI_UserActiveField" => EMPTY_STRING,
     );
     return \%mock_config;
+}
+
+sub test_authen_cred {
+    my $auth_name   = 'testing_authen_cred';
+    my $secret_key  = 'test secret key';
+    my $mock_config = {
+        $auth_name . 'DBI_DSN'             => 'test DSN',
+        $auth_name . 'DBI_SecretKey'       => $secret_key,
+        $auth_name . 'DBI_User'            => $auth_name,
+        $auth_name . 'DBI_Password'        => 'test DBI password',
+        $auth_name . 'DBI_UsersTable'      => 'users',
+        $auth_name . 'DBI_UserField'       => 'user',
+        $auth_name . 'DBI_passwordfield'   => 'password',
+        $auth_name . 'DBI_crypttype'       => 'none',
+        $auth_name . 'DBI_groupstable'     => 'groups',
+        $auth_name . 'DBI_groupfield'      => 'grp',
+        $auth_name . 'DBI_groupuserfield'  => 'user',
+        $auth_name . 'DBI_encryptiontype'  => 'none',
+        $auth_name . 'DBI_sessionlifetime' => '00-24-00-00',
+        $auth_name . 'DBI_sessionmodule'   => 'none',
+    };
+    my $r             = set_up( $auth_name, $mock_config );
+    my $empty_user    = EMPTY_STRING;
+    my $test_password = 'test password';
+    my @extra_data    = qw(extra_1 extra_2);
+    my $got_session_key
+        = CLASS_UNDER_TEST->authen_cred( $r, $empty_user, $test_password,
+        @extra_data );
+    Test::More::is( $got_session_key, undef,
+        'authen_cred returns undef when user is an empty string.' );
+
+    my $test_user      = 'username';
+    my $empty_password = EMPTY_STRING;
+    $got_session_key
+        = CLASS_UNDER_TEST->authen_cred( $r, $test_user, $empty_password,
+        @extra_data );
+    Test::More::is( $got_session_key, undef,
+        'authen_cred returns undef when password is an empty string.' );
+
+    $r = set_up( $auth_name, $mock_config );
+    {
+        my $stub_get_crypted_password = sub { return $test_password };
+        no warnings qw(redefine);
+        local *Apache2::AuthCookieDBI::_get_crypted_password
+            = $stub_get_crypted_password;
+        $got_session_key
+            = CLASS_UNDER_TEST->authen_cred( $r, $test_user, $test_password,
+            @extra_data );
+    }
+    Test::More::like(
+        $got_session_key,
+        qr/\A ${test_user}:/x,
+        'authen_cred returns session key starting with username when all OK.'
+        )
+        || Test::More::diag( 'Mock request object contains: ',
+        Data::Dumper::Dumper($r) );
 }
 
 sub test_authen_ses_key {
@@ -118,11 +175,12 @@ sub test_authen_ses_key {
     $r = set_up( $auth_name, $mock_config );
     $got_user = CLASS_UNDER_TEST->authen_ses_key( $r, $encrypted_session_key );
     Test::More::ok( !$got_user,
-        'authen_ses_key() returns false on failure to tie session.' );
+        'authen_ses_key() returns false on failure to tie session.' )
+        || Test::More::diag("Expected a false value, got: '$got_user'");
     my $class = CLASS_UNDER_TEST;
     Test::More::like(
         $r->{'_error_messages'}->[0],
-        qr/${class}: failed to tie session hash/,
+        qr/${class}\tfailed to tie session hash/,
         'authen_ses_key() logs failure to tie session hash.'
     );
     return TRUE;
@@ -314,9 +372,11 @@ sub test_get_crypted_password {
     my $got_errrors = $r->log_error();    # from the mock request object
     Test::More::is( scalar @$got_errrors,
         1, '_get_crypted_password() logs password not found' );
+
+    my $class = CLASS_UNDER_TEST;
     Test::More::like(
         $got_errrors->[0],
-        qr/\ACould not select password/,
+        qr/\A${class}\tCould not select password/,
         '_get_crypted_password() error message for password not found'
     );
 
@@ -355,10 +415,13 @@ sub test_group {
         Test::More::is( $got_user, $user, "group() checked DB for '$user'" );
     }
     Test::More::like(
-        $r->{'_error_messages'}->[0],
+        $r->{'_info_messages'}->[2]
+        ,    # there are 2 prior messages from _dbi_connect
         qr/user $user was not a member of any of the required groups @groups/,
-        'group() logs expected message for user not in any group.'
-    );
+        'group() logs expected info message for user not in any group.'
+        )
+        || Test::More::diag( 'Mock request object contains: ',
+        Data::Dumper::Dumper($r) );
 
     # Test what happens when the user is in a group
     my $group = 'some_group';
@@ -408,22 +471,39 @@ sub test__dbi_connect {
     Test::More::is_deeply( $r->{'_error_messages'},
         [], '_dbi_connect() - no unexpected errors.' );
 
-    my @expected_errors = (
-        qq{connect to test_DBI_DSN for auth realm $auth_name},
+    my $test_dsn = $mock_config->{"${auth_name}DBI_DSN"};
+
+    my @expected_error_messages
+        = ( qq{couldn't connect to $test_dsn for auth realm $auth_name}, );
+
+    my @expected_info_messages = (
         q{_dbi_connect called in main::test__dbi_connect},
+        qq{connect to test_DBI_DSN for auth realm $auth_name},
     );
+
     {
         no warnings qw(once);
         local $DBI::CONNECT_CACHED_FORCE_FAIL = 1;
         CLASS_UNDER_TEST->_dbi_connect($r);
     }
-    my @got_errors   = @{ $r->{'_error_messages'} };
-    my $got_failures = 0;
-    for ( my $i = 0; $i <= $#expected_errors; $i++ ) {
-        my $got            = $got_errors[$i];
-        my $expected_regex = qr/$expected_errors[$i]/;
+
+    my @got_info_messages  = @{ $r->{'_info_messages'} };
+    my @got_error_messages = @{ $r->{'_error_messages'} };
+    my $got_failures       = 0;
+
+    for ( my $i = 0; $i <= $#expected_error_messages; $i++ ) {
+        my $got            = $got_error_messages[$i];
+        my $expected_regex = qr/$expected_error_messages[$i]/;
         Test::More::like( $got, $expected_regex,
-            qq{_dbi_connect() logs error for "$expected_errors[$i]"} )
+            qq{_dbi_connect() logs info for "$expected_error_messages[$i]"} )
+            || $got_failures++;
+    }
+
+    for ( my $i = 0; $i <= $#expected_info_messages; $i++ ) {
+        my $got            = $got_info_messages[$i];
+        my $expected_regex = qr/$expected_info_messages[$i]/;
+        Test::More::like( $got, $expected_regex,
+            qq{_dbi_connect() logs info for "$expected_info_messages[$i]"} )
             || $got_failures++;
     }
 

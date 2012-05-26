@@ -1,7 +1,7 @@
-# $Header: /Library/VersionControl/CVS/Apache-AuthCookieDBI/t/mock_libs/DBI.pm,v 1.4 2010/11/27 19:15:37 matisse Exp $
+# $Header: /Users/matisse/Desktop/CVS2GIT/matisse.net.cvs/Apache-AuthCookieDBI/t/mock_libs/DBI.pm,v 1.4 2010/11/27 19:15:37 matisse Exp $
 # $Revision: 1.4 $
 # $Author: matisse $
-# $Source: /Library/VersionControl/CVS/Apache-AuthCookieDBI/t/mock_libs/DBI.pm,v $
+# $Source: /Users/matisse/Desktop/CVS2GIT/matisse.net.cvs/Apache-AuthCookieDBI/t/mock_libs/DBI.pm,v $
 # $Date: 2010/11/27 19:15:37 $
 ###############################################################################
 
