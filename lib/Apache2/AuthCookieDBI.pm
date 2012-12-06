@@ -32,8 +32,8 @@ package Apache2::AuthCookieDBI;
 
 use strict;
 use warnings;
-use 5.004;
-our $VERSION = '2.16';
+use 5.010_000;
+our $VERSION = '2.17';
 
 use Apache2::AuthCookie;
 use base qw( Apache2::AuthCookie );
@@ -336,6 +336,11 @@ sub _dbi_config_vars {
         require Crypt::CBC;
     }
 
+    # Compile module for password encryption, if needed.
+    if ( $c{'DBI_CryptType'} =~ '^sha') {
+        require Digest::SHA;
+    }
+
     return %c;
 }
 
@@ -426,7 +431,12 @@ overidden in a subclass.)
 =item C<WhatEverDBI_CryptType>
 
 What kind of hashing is used on the password field in the database.  This can
-be 'none', 'crypt', or 'md5'.  This is not required and defaults to 'none'.
+be 'none', 'crypt', 'md5', 'sha256', 'sha384', or 'sha512'.
+
+C<md5> will use Digest::MD5::md5hex() and C<sha...> will use
+Digest::SHA::sha{n}_hex().
+
+This is not required and defaults to 'none'.
 
 =item C<WhatEverDBI_GroupsTable>
 
@@ -501,17 +511,32 @@ sub _check_password {
     my ( $class, $password, $crypted_password, $crypt_type ) = @_;
     return
         if not $crypted_password
-    ;    # https://rt.cpan.org/Public/Bug/Display.html?id=62470
+        ;    # https://rt.cpan.org/Public/Bug/Display.html?id=62470
 
     my %password_checker = (
         'none' => sub { return $password eq $crypted_password; },
         'crypt' => sub {
-            my $salt = substr $crypted_password, 0, 2;
-            return crypt( $password, $salt ) eq $crypted_password;
+            $class->_crypt_digest( $password, $crypted_password ) eq
+                $crypted_password;
         },
         'md5' => sub { return md5_hex($password) eq $crypted_password; },
+        'sha256' => sub {
+            return Digest::SHA::sha256_hex($password) eq $crypted_password;
+        },
+        'sha384' => sub {
+            return Digest::SHA::sha384_hex($password) eq $crypted_password;
+        },
+        'sha512' => sub {
+            return Digest::SHA::sha512_hex($password) eq $crypted_password;
+        },
     );
     return $password_checker{$crypt_type}->();
+}
+
+sub _crypt_digest {
+    my ( $class, $plaintext, $encrypted ) = @_;
+    my $salt = substr $encrypted, 0, 2;
+    return crypt $plaintext, $salt;
 }
 
 #-------------------------------------------------------------------------------
@@ -591,11 +616,11 @@ sub _get_crypted_password {
     my $crypted_password = EMPTY_STRING;
 
     my $sql_query = <<"SQL";
-      SELECT $c{'DBI_PasswordField'}
-      FROM $c{'DBI_UsersTable'}
-      WHERE $c{'DBI_UserField'} = ?
-      AND ($c{'DBI_PasswordField'} != ''
-      AND $c{'DBI_PasswordField'} IS NOT NULL)
+      SELECT `$c{'DBI_PasswordField'}`
+      FROM `$c{'DBI_UsersTable'}`
+      WHERE `$c{'DBI_UserField'}` = ?
+      AND (`$c{'DBI_PasswordField'}` != ''
+      AND `$c{'DBI_PasswordField'}` IS NOT NULL)
 SQL
     my $sth = $dbh->prepare_cached($sql_query);
     $sth->execute($user);
@@ -940,10 +965,10 @@ sub group {
 
     # Now loop through all the groups to see if we're a member of any:
     my $sth = $dbh->prepare_cached( <<"EOS" );
-SELECT $c{'DBI_GroupUserField'}
-FROM $c{'DBI_GroupsTable'}
-WHERE $c{'DBI_GroupField'} = ?
-AND $c{'DBI_GroupUserField'} = ?
+SELECT `$c{'DBI_GroupUserField'}`
+FROM `$c{'DBI_GroupsTable'}`
+WHERE `$c{'DBI_GroupField'}` = ?
+AND `$c{'DBI_GroupUserField'}` = ?
 EOS
     foreach my $group (@groups) {
         $sth->execute( $group, $user );
@@ -975,9 +1000,9 @@ sub user_is_active {
 
     my $dbh = $class->_dbi_connect($r) || return;
     my $sql_query = <<"SQL";
-      SELECT $active_field_name
-      FROM $c{'DBI_UsersTable'}
-      WHERE $c{'DBI_UserField'} = ?
+      SELECT `$active_field_name`
+      FROM `$c{'DBI_UsersTable'}`
+      WHERE `$c{'DBI_UserField'}` = ?
 SQL
 
     my $sth = $dbh->prepare_cached($sql_query);
@@ -1141,7 +1166,9 @@ according to the following rules:  the user field must be a UNIQUE KEY
 so there is only one row per user; the password field must be NOT NULL.  If
 you're using MD5 passwords the password field must be 32 characters long to
 allow enough space for the output of md5_hex().  If you're using crypt()
-passwords you need to allow 13 characters.
+passwords you need to allow 13 characters. If you're using sha256_hex()
+then you need to allow for 64 characters, for sha384_hex() allow 96 characters,
+and for sha512_hex() allow 128.
 
 An minimal CREATE TABLE statement might look like:
 
